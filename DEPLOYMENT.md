@@ -48,6 +48,21 @@ The example Caddyfile proxies all traffic to the Go backend on port 3002. Caddy 
 
 Edit `/etc/caddy/Caddyfile` with your domain before reloading.
 
+## Health check
+
+`GET /api/health` (and `HEAD`) pings MongoDB with a 2s deadline (`MONGODB_HEALTH_TIMEOUT`):
+
+- `200 {"status":"ok"}` when MongoDB responds.
+- `503 {"status":"unavailable","error":"service-unavailable"}` when it does not. The driver error is written to the server log, not to the response.
+
+The compose healthcheck probes this route, so `docker compose ps` shows the server as `unhealthy` while MongoDB is unreachable. Plain Docker Compose does not restart a container that is only unhealthy; `restart: unless-stopped` applies when the process exits.
+
+When MongoDB is unreachable, API requests that need it return `503 {"error":"service-unavailable"}` with `Retry-After: 10` within about 7s when MongoDB is down (5s server selection timeout, plus up to 2s for a health ping), instead of an empty 500 after 30s. When MongoDB accepts connections but stops replying (e.g. a hung mongod), a request can take about 20s: the 15s socket timeout, then one driver retry that waits for server selection.
+
+If MongoDB is unreachable when the server starts, the server retries for 30s (`MONGODB_STARTUP_TIMEOUT`), logs one `[ERROR]` line and keeps running in degraded mode: the frontend is served, `/api/health` returns 503, and API calls return 503. The driver reconnects on its own, so once MongoDB is back `/api/health` returns 200 without a restart. Errors that waiting will not fix (an invalid URI or option, an invalid `MONGODB_*_TIMEOUT` value, a failed login) stop the server at startup.
+
+On the non-Docker deployment, `deploy_scripts/reboot_server_if_down.sh` (run from cron) checks this route: 200 is healthy; 503 is logged and posted to `HEALTH_ALERT_WEBHOOK_URL` if set, without a restart; no response for 2 consecutive runs restarts the server.
+
 ## Commands
 
 ```bash
@@ -112,6 +127,19 @@ Create `server/.env` from the template (`server/.env.template`).
 | ------------------------- | --------------------------------------- |
 | `MICROSOFT_CLIENT_ID`     | Microsoft OAuth client ID (for Outlook) |
 | `MICROSOFT_CLIENT_SECRET` | Microsoft OAuth client secret           |
+
+#### Optional — MongoDB
+
+| Variable                           | Default               | Description                                                                                                                                                                                  |
+| ---------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_URI`                      | `mongodb://localhost` | Connection string. Timeouts given here (e.g. `serverSelectionTimeoutMS`) take precedence over the variables below                                                                          |
+| `MONGODB_SERVER_SELECTION_TIMEOUT` | `5s`                  | How long a request waits for a reachable MongoDB before failing (driver default 30s). MongoDB runs on the same host or Docker network, where selection takes milliseconds |
+| `MONGODB_CONNECT_TIMEOUT`          | `5s`                  | TCP dial and heartbeat timeout, so a hung mongod is detected within about 5s (driver default 30s)                                                                                          |
+| `MONGODB_SOCKET_TIMEOUT`           | `15s`                 | Limit for a single read or write when MongoDB accepts the connection but does not reply. `0` disables it. Raise it if large analytics aggregations take longer                             |
+| `MONGODB_HEALTH_TIMEOUT`           | `2s`                  | Deadline for `/api/health` and for the ping that classifies failed requests                                                                                                                   |
+| `MONGODB_STARTUP_TIMEOUT`          | `30s`                 | How long the server retries MongoDB at startup before it starts in degraded mode                                                                                                             |
+
+Values are Go durations (`5s`, `1500ms`). An invalid value stops the server at startup.
 
 #### Optional — CORS
 
