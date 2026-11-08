@@ -11,6 +11,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/auth"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"schej.it/server/logger"
 )
 
@@ -48,6 +50,41 @@ func TestIsUnavailable(t *testing.T) {
 		if got := IsUnavailable(tc.err); got != tc.want {
 			t.Errorf("%s: IsUnavailable(%v) = %v, want %v", tc.name, tc.err, got, tc.want)
 		}
+	}
+}
+
+func TestIsAuthError(t *testing.T) {
+	authErr := &auth.Error{}
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"direct", authErr, true},
+		{"wrapped connection", fmt.Errorf("ping: %w", topology.ConnectionError{Wrapped: authErr}), true},
+		{"other connection", topology.ConnectionError{Wrapped: errors.New("dial failed")}, false},
+		{"other error", errors.New("timeout"), false},
+		{"nil", nil, false},
+	}
+	for _, tc := range cases {
+		if got := isAuthError(tc.err); got != tc.want {
+			t.Errorf("%s: isAuthError(%v) = %v, want %v", tc.name, tc.err, got, tc.want)
+		}
+	}
+}
+
+func TestWaitForMongoRetriesUnclassifiedErrorUntilTimeout(t *testing.T) {
+	saved := Client
+	Client = nil // Ping returns an unclassified error immediately.
+	defer func() { Client = saved }()
+
+	start := time.Now()
+	err := waitForMongo(20 * time.Millisecond)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if elapsed := time.Since(start); elapsed < 20*time.Millisecond {
+		t.Errorf("returned after %v, before startup timeout", elapsed)
 	}
 }
 

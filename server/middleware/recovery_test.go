@@ -93,3 +93,24 @@ func TestRecoveryNilPing(t *testing.T) {
 		t.Fatalf("status = %d, want 500", w.Code)
 	}
 }
+
+func TestRecoveryAfterResponseWritten(t *testing.T) {
+	router := gin.New()
+	router.Use(DBAwareRecovery(nil, 100*time.Millisecond))
+	router.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		panic(mongo.ErrClientDisconnected)
+	})
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	if body := w.Body.String(); strings.Contains(body, "service-unavailable") {
+		t.Errorf("body contains service-unavailable: %q", body)
+	}
+	if body := strings.TrimSpace(w.Body.String()); body != `{"status":"ok"}` {
+		t.Errorf("body = %q, want original response", body)
+	}
+}

@@ -25,6 +25,10 @@ const serviceUnavailableRetryAfter = "10"
 // `ping` is passed in so tests do not need a running mongo. A nil ping skips step 2.
 func DBAwareRecovery(ping func(context.Context) error, timeout time.Duration) gin.HandlerFunc {
 	return gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
+		if c.Writer.Written() {
+			c.Abort()
+			return
+		}
 		if isDBOutage(c, recovered, ping, timeout) {
 			c.Header("Retry-After", serviceUnavailableRetryAfter)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, responses.Error{Error: errs.ServiceUnavailable})

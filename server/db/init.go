@@ -67,8 +67,8 @@ func Init() func() {
 
 	// Make sure mongo is actually reachable
 	if err := waitForMongo(cfg.Startup); err != nil {
-		if !IsUnavailable(err) {
-			// e.g. authentication failure, waiting will not fix this
+		if isAuthError(err) {
+			// Authentication failures require corrected credentials.
 			logger.StdErr.Fatalf("MongoDB ping failed: %v", err)
 		}
 		// Keep running: the driver reconnects on its own once Mongo is back, and in the meantime the
@@ -111,8 +111,8 @@ func Ping(ctx context.Context) error {
 	return Client.Ping(ctx, readpref.Primary())
 }
 
-// Pings mongo until it responds or `timeout` has passed. Returns the last error. Each attempt
-// returns after at most the server selection timeout
+// Pings mongo until it responds or `timeout` has passed. Authentication failures return
+// immediately; other failures return the last error after the timeout.
 func waitForMongo(timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -122,7 +122,7 @@ func waitForMongo(timeout time.Duration) error {
 		if err == nil {
 			return nil
 		}
-		if !IsUnavailable(err) {
+		if isAuthError(err) {
 			return err
 		}
 

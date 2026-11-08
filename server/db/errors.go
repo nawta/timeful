@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/auth"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"schej.it/server/logger"
 )
@@ -26,6 +27,11 @@ func IsUnavailable(err error) bool {
 		return true
 	}
 	return errors.Is(err, mongo.ErrClientDisconnected)
+}
+
+func isAuthError(err error) bool {
+	var authErr *auth.Error
+	return errors.As(err, &authErr)
 }
 
 // Logs err with the caller's file and line, then panics with err itself (not a string) so the
