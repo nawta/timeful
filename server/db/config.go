@@ -15,8 +15,9 @@ const (
 	// normally takes milliseconds; 5s matches the mongo container healthcheck timeout.
 	defaultServerSelectionTimeout = 5 * time.Second
 
-	// MONGODB_CONNECT_TIMEOUT. Bounds the TCP dial and the heartbeat, so a hung mongod is marked
-	// unreachable within about 5s (driver default 30s).
+	// MONGODB_CONNECT_TIMEOUT. Bounds the TCP dial and the heartbeat connection setup (driver default
+	// 30s). With MongoDB 4.4+ the driver uses streaming heartbeats, so a mongod that accepts connections
+	// but stops replying is marked unreachable after about connect timeout + 10s heartbeat = 15s.
 	defaultConnectTimeout = 5 * time.Second
 
 	// MONGODB_SOCKET_TIMEOUT. Bounds every single read/write on a connection (including cursor
